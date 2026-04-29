@@ -26,6 +26,9 @@ class FormularioApp(tk.Tk):
         self.geometry("520x560")
         self.resizable(False, False)
         self.configure(bg=BG)
+        self.registros = []  # Lista de registros cargados desde Excel o formulario
+        self.sum_montos = 0
+        self.sum_correlativos = 0
 
         # Estado
         self.filas: list[dict] = []
@@ -203,6 +206,13 @@ class FormularioApp(tk.Tk):
 
         try:
             registros, sum_monto, sum_correlativos = cargador.cargar_registros(path)
+            self.registros = registros  # Guardar los registros cargados
+            self.sum_montos = sum_monto
+            self.sum_correlativos = sum_correlativos
+            for r in registros:
+                print(r.to_env())
+            print(f"Sumatoria Monto: {sum_monto}, Sumatoria Correlativos: {sum_correlativos}")
+
            
 
             self._status(f"✅  {len(registros)} fila(s) cargadas desde Excel.", SUCCESS)
@@ -211,12 +221,11 @@ class FormularioApp(tk.Tk):
             self._status("❌  Error al cargar Excel.", DANGER)
 
     def _generar_txt(self):
-        # Agregar la fila del formulario si tiene datos válidos
-        nc, fe, ti = self._get_form_values()
-        registros = list(self.filas)  # copia
+        registros = self.registros  # Usar los registros cargados desde Excel
+        encabezado = cargador.generar_encabezado()
+        registro_control = cargador.generar_registro_control(self.sum_montos, self.sum_correlativos)
 
-        if nc and nc not in ("Ej: CLI-00123",):
-            registros.append({"num_cliente": nc, "fecha": fe, "tipo": ti})
+        archivo = cargador.generar_txt(encabezado, registros, registro_control)
 
         if not registros:
             messagebox.showwarning(
@@ -228,19 +237,16 @@ class FormularioApp(tk.Tk):
 
         path = filedialog.asksaveasfilename(
             title="Guardar archivo",
-            defaultextension=".txt",
-            filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
+            defaultextension=".ENV",
+            filetypes=[("ENV files", "*.ENV"), ("All files", "*.*")]
         )
         if not path:
             return
 
         try:
             with open(path, "w", encoding="utf-8") as f:
-                f.write("NUM_CLIENTE|FECHA|TIPO_TRANSACCION\n")
-                f.write("-" * 48 + "\n")
-                for r in registros:
-                    tipo_cod = "1" if str(r["tipo"]).startswith("1") else "2"
-                    f.write(f"{r['num_cliente']}|{r['fecha']}|{tipo_cod}\n")
+                f.write(archivo)
+                
 
             self._status(
                 f"✅  Archivo guardado: {os.path.basename(path)} ({len(registros)} reg.)",

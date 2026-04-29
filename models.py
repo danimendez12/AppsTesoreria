@@ -36,21 +36,21 @@ class Encabezado:
     def to_env(self):
         linea = (
             pad_num(self.tipo,1) +
-            pad_num(self.num_cliente,10) +
+            pad_num(self.num_cliente,6) +
             pad_num(self.fecha,8) +
-            pad_num(self.num_transferencia_real,20) +
-            pad_num(self.num_transferencia_interna,20) +
-            pad_num(self.tipo_transaccion,2) +
-            pad_num(self.codigo_error,2) +
+            pad_num(self.num_transferencia_real,6) +
+            pad_num(self.num_transferencia_interna,6) +
+            pad_num(self.tipo_transaccion,1) +
+            pad_num(self.codigo_error,4) +
             pad_num(self.total_transferencia,12) +
-            pad_num(self.tipo_cambio_compra_dia,12) +
-            pad_num(self.tipo_cambio_venta_dia,12) +
-            pad_alpha(self.campo_sin_uso,11)
+            pad_num(self.tipo_cambio_compra_dia,7) +
+            pad_num(self.tipo_cambio_venta_dia,7) +
+            pad_num(self.campo_sin_uso,10)
         )
 
-        if len(linea) != 120:
+        if len(linea) != 68:
             raise ValueError(
-                f"Encabezado inválido: {len(linea)} caracteres"
+                f"Encabezado inválido: {len(linea)} caracteres", linea
             )
 
         return linea
@@ -116,15 +116,15 @@ class RegistroControl:
     def to_env(self):
         linea = (
             pad_num(self.tipo,1) +
-            pad_num(self.sumatoria_montos,12) +
-            pad_num(self.sumatoria_correlativos,8) +
-            pad_alpha(self.test_key,20) +
+            pad_num(self.sumatoria_montos,15) +
+            pad_num(self.sumatoria_correlativos,10) +
+            pad_num(self.test_key,10) +
             pad_num(self.monto_en_dolares,12) +
             pad_num(self.monto_en_colones,12) +
-            pad_alpha(self.campo_sin_uso,57)
+            pad_num(self.campo_sin_uso,8)
         )
 
-        if len(linea) != 120:
+        if len(linea) != 68:
             raise ValueError(
                 f"Registro Control inválido: {len(linea)} caracteres"
             )
