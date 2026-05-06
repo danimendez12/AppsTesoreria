@@ -62,23 +62,13 @@ class FormularioApp(tk.Tk):
         inner = tk.Frame(card, bg=SURFACE, padx=24, pady=20)
         inner.pack(fill="x")
 
-        # Num. Cliente
-        self._label(inner, "Número de Cliente")
-        self.num_cliente_var = tk.StringVar()
-        self._entry(inner, self.num_cliente_var, "Ej: CLI-00123")
-
-        # Fecha
-        self._label(inner, "Fecha")
-        self.fecha_var = tk.StringVar(value=datetime.today().strftime("%Y-%m-%d"))
-        self._entry(inner, self.fecha_var, "YYYY-MM-DD")
-
         # Tipo de Transacción
         self._label(inner, "Tipo de Transacción")
-        self.tipo_var = tk.StringVar(value="1")
+        self.tipo_var = tk.StringVar(value="Interna")
         tipo_cb = ttk.Combobox(
             inner,
             textvariable=self.tipo_var,
-            values=["1", "2"],
+            values=["Interna", "Sinpe"],
             state="readonly",
             font=("Courier New", 10),
         )
@@ -191,10 +181,8 @@ class FormularioApp(tk.Tk):
     # ── Lógica ─────────────────────────────────────────────────────────────────
 
     def _get_form_values(self):
-        nc = self.num_cliente_var.get().strip()
-        fe = self.fecha_var.get().strip()
         ti = self.tipo_var.get().strip()
-        return nc, fe, ti
+        return ti
 
     def _cargar_excel(self):
         path = filedialog.askopenfilename(
@@ -205,7 +193,8 @@ class FormularioApp(tk.Tk):
             return
 
         try:
-            registros, sum_monto, sum_correlativos = cargador.cargar_registros(path)
+            self.estrategia = cargador.EstrategiaSIN() if self.tipo_var.get() == "Sinpe" else cargador.EstrategiaNormal()
+            registros, sum_monto, sum_correlativos = cargador.cargar_registros(path, self.estrategia)
             self.registros = registros  # Guardar los registros cargados
             self.sum_montos = sum_monto
             self.sum_correlativos = sum_correlativos
@@ -221,13 +210,14 @@ class FormularioApp(tk.Tk):
             self._status("❌  Error al cargar Excel.", DANGER)
 
     def _generar_txt(self):
-        registros = self.registros  # Usar los registros cargados desde Excel
-        encabezado = cargador.generar_encabezado()
-        registro_control = cargador.generar_registro_control(self.sum_montos, self.sum_correlativos)
+        archivo = cargador.generar_txt(
+            suma_monto=self.sum_montos, 
+            suma_corr=self.sum_correlativos,
+            estrategia=self.estrategia,
+            registros=self.registros
+        )
 
-        archivo = cargador.generar_txt(encabezado, registros, registro_control)
-
-        if not registros:
+        if not self.registros:
             messagebox.showwarning(
                 "Sin datos",
                 "No hay registros para exportar.\n"
@@ -249,12 +239,12 @@ class FormularioApp(tk.Tk):
                 
 
             self._status(
-                f"✅  Archivo guardado: {os.path.basename(path)} ({len(registros)} reg.)",
+                f"✅  Archivo guardado: {os.path.basename(path)} ({len(self.registros)} reg.)",
                 SUCCESS
             )
             messagebox.showinfo(
                 "Éxito",
-                f"Archivo generado correctamente.\n{len(registros)} registro(s) exportados."
+                f"Archivo generado correctamente.\n{len(self.registros)} registro(s) exportados."
             )
         except Exception as e:
             messagebox.showerror("Error al guardar", str(e))
