@@ -20,8 +20,9 @@ class CuentaDebito:
     numero_de_cuenta: str = "006662"
     digito_verificador: str = "1"
     numero_comprobante: str = "00000001"
-    id_cliente: str     = "023232"   
-    cuenta_IBAN: str = "CR00000000000000000000"       # usado también en encabezado
+    id_unico: str     = "023232"   
+    id_clientes: str       = "000400004214500"
+    cuenta_IBAN: str = "CR41015107510010066624"       # usado también en encabezado
 
 
 CUENTA_DEBITO = CuentaDebito()
@@ -64,20 +65,30 @@ class EstrategiaTransferencia(ABC):
     def _monto_entero(monto: float) -> int:
         return int(round(monto * 100))
 
+    
+
     @staticmethod
-    def _fila_invalida(banco: str, monto: float) -> bool:
-        return banco == "NO ASIGNADO" or monto <= 0
+    def validacion_fila(carne: str, identificacion: str, monto: float, banco: str, cuenta:str , estrategia: EstrategiaTransferencia) -> str | None:
+        if banco == "NO ASIGNADO" or banco == "":
+            return "Banco no asignado"
+        if monto <= 0:
+            return "Monto debe ser mayor a 0"
+        if (estrategia.__class__ == EstrategiaNormal and (not cuenta or len(cuenta) != 15)) :
+            return "Cuenta debe tener al menos 15 dígitos"
+        elif (estrategia.__class__ == EstrategiaSIN and (not cuenta or len(cuenta) < 20)):
+            return "Cuenta IBAN debe tener al menos 20 caracteres"
+        if not carne or len(carne) < 10:
+            return "Carné debe tener al menos 10 caracteres"
+        if not identificacion:
+            return "Identificación es obligatoria"
+        return None
 
 
 # ── Estrategia normal ─────────────────────────────────────────────────────────
 
 class EstrategiaNormal(EstrategiaTransferencia):
-
-    def construir_credito(self, row: tuple) -> models.Credito | None:
-        banco  = row[4]
+    def construir_credito(self, row: tuple) -> models.Credito:
         monto  = float(row[3])
-        if self._fila_invalida(banco, monto):
-            return None
 
         cuenta = str(row[5])
         carne  = str(row[0])
@@ -118,7 +129,7 @@ class EstrategiaNormal(EstrategiaTransferencia):
                              ) -> models.Encabezado:
         return models.Encabezado(
             tipo                     = "1",
-            num_cliente              = CUENTA_DEBITO.id_cliente,
+            num_cliente              = CUENTA_DEBITO.id_unico,
             fecha                    = datetime.now().strftime("%d%m%Y"),
             num_transferencia_real   = "000000",
             num_transferencia_interna= "000000",
@@ -164,10 +175,11 @@ class EstrategiaSIN(EstrategiaTransferencia):
     def construir_credito(self, row: tuple) -> models.RegistroCreditoSIN | None:
         banco = row[4]
         monto = float(row[3])
-        if self._fila_invalida(banco, monto):
-            return None
 
-        iban  = str(row[5])   # misma columna, formato CR21...
+        iban = str(row[5]).strip()
+
+        if iban.upper().startswith("CR"):
+            iban = iban[2:]   # misma columna, formato CR21...
         carne = str(row[0])
         cedula = str(row[1])
         concepto = str(row[6]) if len(row) > 6 and row[6] else f"CARNE: {carne}"
@@ -197,7 +209,10 @@ class EstrategiaSIN(EstrategiaTransferencia):
         c = CUENTA_DEBITO
         # SIN usa IBAN para débito; el 006662 se embebe en el IBAN de tu institución
         # Ajustá iban_debito si tenés el IBAN completo de esa cuenta
-        iban_debito = c.cuenta_IBAN.zfill(22)
+        iban_debito = c.cuenta_IBAN
+
+        if iban_debito.upper().startswith("CR"):
+            iban_debito = iban_debito[2:]
         fecha = datetime.now().strftime("%d/%m/%Y")
         return models.RegistroDebitoSIN(
             num_linea            = "1",
@@ -220,9 +235,9 @@ class EstrategiaSIN(EstrategiaTransferencia):
         c = CUENTA_DEBITO
         return models.EncabezadoSIN(
             tipo                     = "1",
-            id_unica_cliente         = c.id_cliente,
+            id_unica_cliente         = c.id_unico,
             tipo_id_cliente          = "0",
-            id_cliente               = c.id_cliente,
+            id_cliente               = c.id_clientes,
             fecha                    = datetime.now().strftime("%d%m%Y"),
             numero_transferencia_real= "00000",
             tipo_transaccion         = "1",
@@ -232,8 +247,8 @@ class EstrategiaSIN(EstrategiaTransferencia):
             monto_total_sin          = "0000000000000000",
             tipo_cambio_compra       = "0000000",
             tipo_cambio_venta        = "0000000",
-            sumatoria_montos         = "0000000000000000",
-            sumatoria_correlativos   = "0000000000",
+            sumatoria_montos         = str(sumatoria_monto).zfill(16),
+            sumatoria_correlativos   = str(sumatoria_correlativos).zfill(10),
         )
 
     def construir_control(
@@ -247,51 +262,122 @@ class EstrategiaSIN(EstrategiaTransferencia):
 # ── Cargador principal ────────────────────────────────────────────────────────
 
 def _ordenar_tabla(tabla, key_col: int = 0):
+
     filas = list(tabla.iter_rows(min_row=2, values_only=True))
-    filas.sort(key=lambda x: x[key_col])
+
+    # Guardar fila original
+    filas = [
+        fila
+        for fila in tabla.iter_rows(min_row=2, values_only=True)
+        if any(celda is not None and str(celda).strip() != "" for celda in fila)
+    ]
+
+    # Guardar fila original
+    filas_con_indice = [
+        (i + 2, fila)
+        for i, fila in enumerate(filas)
+    ]
+    filas_con_indice.sort(
+        key=lambda x: x[1][key_col]
+    )
+
     tabla.delete_rows(2, tabla.max_row)
-    for fila in filas:
+
+    for _, fila in filas_con_indice:
         tabla.append(fila)
-    return tabla
+
+    return tabla, filas_con_indice
 
 
 def cargar_registros(
     archivo_excel: str,
     estrategia: EstrategiaTransferencia,
-) -> tuple[list, float, int]:
+) -> tuple[list, float, int, dict[int, str]]:
     """
     Lee el Excel y construye los registros usando la estrategia indicada.
-    Retorna (registros, sumatoria_monto, sumatoria_correlativos).
+    Retorna:
+    (
+        registros,
+        sumatoria_monto,
+        sumatoria_correlativos,
+        errores
+    )
     """
-    nombre = os.path.splitext(os.path.basename(archivo_excel))[0]
+
+    nombre = os.path.splitext(
+        os.path.basename(archivo_excel)
+    )[0]
+
     wb = openpyxl.load_workbook(archivo_excel)
-    hoja = _ordenar_tabla(wb.active, key_col=1 if estrategia.__class__ == EstrategiaSIN else 0)  # ordena por IBAN para SIN, por banco para normal
 
-    creditos            = []
-    sumatoria_monto     = 0.0
+    hoja, filas_con_indice = _ordenar_tabla(
+        wb.active,
+        key_col=1 if estrategia.__class__ == EstrategiaSIN else 0
+    )
+
+    creditos = []
+    sumatoria_monto = 0.0
     sumatoria_correlativos = 0
+    errores = {}
 
-    for row in hoja.iter_rows(min_row=2, values_only=True):
+    for num_fila_original, row in filas_con_indice:
+
+        carne = str(row[0])
+        identificacion = str(row[1])
+        monto = float(row[3])
+        banco = str(row[4])
+        cuenta = str(row[5])
+
+        error = EstrategiaTransferencia.validacion_fila(
+            carne,
+            identificacion,
+            monto,
+            banco,
+            cuenta,
+            estrategia
+        )
+
+        if error:
+            errores[num_fila_original] = error
+            continue
+
         registro = estrategia.construir_credito(row)
+
         if registro is None:
             continue
 
-        monto  = float(row[3])
-        cuenta = str(row[5])
-        numero_de_cuenta = cuenta[8:14]   # para normal; SIN lo ignora en sumatoria
+        numero_de_cuenta = cuenta[8:14]
 
-        sumatoria_monto        += monto
-        sumatoria_correlativos += int(numero_de_cuenta) if numero_de_cuenta.isdigit() else 0
+        sumatoria_monto += monto
+
+        sumatoria_correlativos += (
+            int(numero_de_cuenta)
+            if numero_de_cuenta.isdigit()
+            else 0
+        )
+
         creditos.append(registro)
 
-    debito = estrategia.construir_debito(nombre, sumatoria_monto)
+    debito = estrategia.construir_debito(
+        nombre,
+        sumatoria_monto
+    )
 
-    # El débito también suma (igual que antes)
-    sumatoria_monto        += float(sumatoria_monto)   # duplica como en el original
-    sumatoria_correlativos += int(CUENTA_DEBITO.numero_de_cuenta)
+    # El débito también suma
+    sumatoria_monto += float(sumatoria_monto)
+
+    sumatoria_correlativos += int(
+        CUENTA_DEBITO.numero_de_cuenta
+    )
 
     registros = [debito] + creditos
-    return registros, sumatoria_monto, sumatoria_correlativos
+
+    return (
+        registros,
+        sumatoria_monto,
+        sumatoria_correlativos,
+        errores
+    )
 
 
 def generar_txt(
