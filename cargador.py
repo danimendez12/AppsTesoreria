@@ -34,7 +34,7 @@ class EstrategiaTransferencia(ABC):
     """Define cómo construir cada pieza del envío según el tipo (normal / SIN)."""
 
     @abstractmethod
-    def construir_credito(self, row: tuple) -> models.BaseRecord | None:
+    def construir_credito(self, monto: float, cuenta: str, carne: str) -> models.BaseRecord | None:
         """Retorna un registro de crédito o None si la fila debe ignorarse."""
 
     @abstractmethod
@@ -65,7 +65,11 @@ class EstrategiaTransferencia(ABC):
     def _monto_entero(monto: float) -> int:
         return int(round(monto * 100))
 
-    
+    @staticmethod
+    def _normalizar_cuenta(cuenta: str) -> str:
+        if cuenta is None:
+            return ""
+        return str(cuenta).replace("-","").replace(" ","").strip()
 
     @staticmethod
     def validacion_fila(carne: str, identificacion: str, monto: float, banco: str, cuenta:str , estrategia: EstrategiaTransferencia) -> str | None:
@@ -77,21 +81,24 @@ class EstrategiaTransferencia(ABC):
             return "Cuenta debe tener al menos 15 dígitos"
         elif (estrategia.__class__ == EstrategiaSIN and (not cuenta or len(cuenta) < 20)):
             return "Cuenta IBAN debe tener al menos 20 caracteres"
-        if not carne or len(carne) < 10:
-            return "Carné debe tener al menos 10 caracteres"
+        if not carne:
+            return "Carné es obligatorio"
         if not identificacion:
             return "Identificación es obligatoria"
         return None
+    
+    
 
 
 # ── Estrategia normal ─────────────────────────────────────────────────────────
 
 class EstrategiaNormal(EstrategiaTransferencia):
-    def construir_credito(self, row: tuple) -> models.Credito:
-        monto  = float(row[3])
+    def construir_credito(self, monto, cuenta, carne) -> models.Credito:
+        monto  = float(monto)
 
-        cuenta = str(row[5])
-        carne  = str(row[0])
+
+        cuenta = self._normalizar_cuenta(cuenta)
+        carne  = str(carne)
 
         registro = models.Credito(
             producto           = cuenta[:3],
@@ -172,18 +179,17 @@ class EstrategiaSIN(EstrategiaTransferencia):
         self._num_linea += 1
         return str(val)
 
-    def construir_credito(self, row: tuple) -> models.RegistroCreditoSIN | None:
-        banco = row[4]
-        monto = float(row[3])
+    def construir_credito(self, monto, cuenta, carne) -> models.RegistroCreditoSIN | None:
+        banco = "BN"  # Placeholder value, replace with actual logic if needed
+        monto = float(monto)
 
-        iban = str(row[5]).strip()
+        iban = str(cuenta).strip()
 
         if iban.upper().startswith("CR"):
             iban = iban[2:]   # misma columna, formato CR21...
-        carne = str(row[0])
-        cedula = str(row[1])
-        concepto = str(row[6]) if len(row) > 6 and row[6] else f"CARNE: {carne}"
-        detalle_especial = str(row[8]) if len(row) > 8 and row[8] else concepto
+        cedula = str(cuenta)  # Placeholder value, replace with actual logic if needed
+        concepto = str(carne) if len(carne) == 10 else f"CARNE: {carne}"
+        detalle_especial = concepto
         if banco == "BN": tipo = "1"
         else: tipo = "2"
 
@@ -260,26 +266,27 @@ class EstrategiaSIN(EstrategiaTransferencia):
 
 
 # ── Cargador principal ────────────────────────────────────────────────────────
-
+def _safe_key(val):
+    if val is None:
+        return (True, 0)
+    try:
+        return (False, int(val))
+    except (ValueError, TypeError):
+        return (False, str(val))
 def _ordenar_tabla(tabla, key_col: int = 0):
 
-    filas = list(tabla.iter_rows(min_row=2, values_only=True))
-
-    # Guardar fila original
     filas = [
         fila
         for fila in tabla.iter_rows(min_row=2, values_only=True)
         if any(celda is not None and str(celda).strip() != "" for celda in fila)
     ]
 
-    # Guardar fila original
     filas_con_indice = [
         (i + 2, fila)
         for i, fila in enumerate(filas)
     ]
-    filas_con_indice.sort(
-        key=lambda x: x[1][key_col]
-    )
+
+    filas_con_indice.sort(key=lambda x: _safe_key(x[1][key_col]))
 
     tabla.delete_rows(2, tabla.max_row)
 
@@ -292,6 +299,7 @@ def _ordenar_tabla(tabla, key_col: int = 0):
 def cargar_registros(
     archivo_excel: str,
     estrategia: EstrategiaTransferencia,
+    tipo_pago: int,
 ) -> tuple[list, float, int, dict[int, str]]:
     """
     Lee el Excel y construye los registros usando la estrategia indicada.
@@ -310,11 +318,19 @@ def cargar_registros(
 
     wb = openpyxl.load_workbook(archivo_excel)
 
+
+    key_col = 3 if isinstance(estrategia, EstrategiaSIN) else 2
+
     hoja, filas_con_indice = _ordenar_tabla(
         wb.active,
-        key_col=1 if estrategia.__class__ == EstrategiaSIN else 0
+        key_col=key_col
     )
 
+    columna_carnet = 2 if tipo_pago == 1 else 5
+    columna_identificacion = 3 if tipo_pago == 1 else 4
+    columna_monto = 7 if tipo_pago == 1 else 8
+    columna_banco = 12 if tipo_pago==1 else 6
+    columna_cuenta = 13 if tipo_pago==1 else 7
     creditos = []
     sumatoria_monto = 0.0
     sumatoria_correlativos = 0
@@ -322,15 +338,23 @@ def cargar_registros(
 
     for num_fila_original, row in filas_con_indice:
 
-        carne = str(row[0])
-        identificacion = str(row[1])
-        monto = float(row[3])
-        banco = str(row[4])
-        cuenta = str(row[5])
+        if (row[columna_identificacion] is None and row[columna_carnet] is None) or row[columna_monto] is None or row[columna_banco] is None or row[columna_cuenta] is None:
+            continue
+
+        try:
+            carne = int(row[columna_carnet])
+            identificacion = str(row[columna_identificacion])
+            monto = float(row[columna_monto])
+            banco = str(row[columna_banco])
+            cuenta = str(row[columna_cuenta])
+
+        except (ValueError, TypeError) as e:
+            errores[num_fila_original] = f"Error al convertir datos: {e}"
+            continue
 
         error = EstrategiaTransferencia.validacion_fila(
-            carne,
-            identificacion,
+            str(carne),
+            str(identificacion),
             monto,
             banco,
             cuenta,
@@ -341,7 +365,7 @@ def cargar_registros(
             errores[num_fila_original] = error
             continue
 
-        registro = estrategia.construir_credito(row)
+        registro = estrategia.construir_credito(monto, cuenta, carne)
 
         if registro is None:
             continue

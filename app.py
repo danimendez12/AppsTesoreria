@@ -81,6 +81,18 @@ class FormularioApp(tk.Tk):
         inner = tk.Frame(card, bg=SURFACE, padx=24, pady=18)
         inner.pack(fill="x")
 
+        # Tipo de Pago
+        self._label(inner, "▸  TIPO DE PAGO")
+        self.tipo_var_pago = tk.StringVar(value="Becas")
+        tipo_cb = ttk.Combobox(
+            inner,
+            textvariable=self.  tipo_var_pago,
+            values=["Becas", "Otros"],
+            state="readonly",
+            font=("Trebuchet MS", 10),
+        )
+        self._style_combobox(tipo_cb)
+
         # Tipo de Transacción
         self._label(inner, "▸  TIPO DE TRANSACCIÓN")
         self.tipo_var = tk.StringVar(value="Interna")
@@ -330,7 +342,7 @@ class FormularioApp(tk.Tk):
                 else cargador.EstrategiaNormal()
             )
             registros, sum_monto, sum_correlativos, errores = cargador.cargar_registros(
-                path, self.estrategia
+                path, self.estrategia, tipo_pago=1 if self.tipo_var_pago.get() == "Becas" else 2
             )
             self.registros = registros
             self.sum_montos = sum_monto
