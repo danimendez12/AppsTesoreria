@@ -65,11 +65,7 @@ class EstrategiaTransferencia(ABC):
     def _monto_entero(monto: float) -> int:
         return int(round(monto * 100))
 
-    @staticmethod
-    def _normalizar_cuenta(cuenta: str) -> str:
-        if cuenta is None:
-            return ""
-        return str(cuenta).replace("-","").replace(" ","").strip()
+    
 
     @staticmethod
     def validacion_fila(carne: str, identificacion: str, monto: float, banco: str, cuenta:str , estrategia: EstrategiaTransferencia) -> str | None:
@@ -97,7 +93,7 @@ class EstrategiaNormal(EstrategiaTransferencia):
         monto  = float(monto)
 
 
-        cuenta = self._normalizar_cuenta(cuenta)
+        cuenta = str(cuenta)
         carne  = str(carne)
 
         registro = models.Credito(
@@ -296,6 +292,11 @@ def _ordenar_tabla(tabla, key_col: int = 0):
     return tabla, filas_con_indice
 
 
+def normalizar_cuenta(cuenta: str) -> str:
+    if cuenta is None:
+        return ""
+    return str(cuenta).replace("-","").replace(" ","").strip()
+
 def cargar_registros(
     archivo_excel: str,
     estrategia: EstrategiaTransferencia,
@@ -328,9 +329,9 @@ def cargar_registros(
 
     columna_carnet = 2 if tipo_pago == 1 else 5
     columna_identificacion = 3 if tipo_pago == 1 else 4
-    columna_monto = 7 if tipo_pago == 1 else 8
-    columna_banco = 12 if tipo_pago==1 else 6
-    columna_cuenta = 13 if tipo_pago==1 else 7
+    columna_monto = 7 if tipo_pago == 1 else 10
+    columna_banco = 12 if tipo_pago==1 else 8
+    columna_cuenta = 13 if tipo_pago==1 else 9
     creditos = []
     sumatoria_monto = 0.0
     sumatoria_correlativos = 0
@@ -346,7 +347,7 @@ def cargar_registros(
             identificacion = str(row[columna_identificacion])
             monto = float(row[columna_monto])
             banco = str(row[columna_banco])
-            cuenta = str(row[columna_cuenta])
+            cuenta = str(normalizar_cuenta(str(row[columna_cuenta])))
 
         except (ValueError, TypeError) as e:
             errores[num_fila_original] = f"Error al convertir datos: {e}"
